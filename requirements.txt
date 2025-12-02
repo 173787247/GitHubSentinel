@@ -4,3 +4,4 @@ gradio
 loguru
 schedule
 markdown2
+beautifulsoup4

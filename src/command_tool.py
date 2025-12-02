@@ -6,6 +6,7 @@ from report_generator import ReportGenerator  # 从report_generator模块导入R
 from llm import LLM  # 从llm模块导入LLM类，可能用于语言模型相关操作
 from subscription_manager import SubscriptionManager  # 从subscription_manager模块导入SubscriptionManager类，管理订阅
 from command_handler import CommandHandler  # 从command_handler模块导入CommandHandler类，处理命令行命令
+from hacker_news_client import HackerNewsClient  # 从hacker_news_client模块导入HackerNewsClient类
 from logger import LOG  # 从logger模块导入LOG对象，用于日志记录
 
 def main():
@@ -14,7 +15,8 @@ def main():
     llm = LLM()  # 创建语言模型实例
     report_generator = ReportGenerator(llm)  # 创建报告生成器实例
     subscription_manager = SubscriptionManager(config.subscriptions_file)  # 创建订阅管理器实例
-    command_handler = CommandHandler(github_client, subscription_manager, report_generator)  # 创建命令处理器实例
+    hacker_news_client = HackerNewsClient()  # 创建Hacker News客户端实例
+    command_handler = CommandHandler(github_client, subscription_manager, report_generator, hacker_news_client)  # 创建命令处理器实例
     
     parser = command_handler.parser  # 获取命令解析器
     command_handler.print_help()  # 打印帮助信息

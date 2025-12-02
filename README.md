@@ -14,7 +14,12 @@ GitHub Sentinel is an open-source tool AI Agent designed for developers and proj
     pip install -r requirements.txt
     ```
 
-2. Configure the application by editing `config.json`.
+2. Configure the application:
+    ```sh
+    # Copy the example config file
+    cp config.json.example config.json
+    # Edit config.json and add your GitHub token
+    ```
 
 3. Run the application:
     ```sh

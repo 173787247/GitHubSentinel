@@ -15,7 +15,8 @@ class GitHubClient:
         updates = {
             'commits': self.fetch_commits(repo, since, until),  # 获取提交记录
             'issues': self.fetch_issues(repo, since, until),  # 获取问题
-            'pull_requests': self.fetch_pull_requests(repo, since, until)  # 获取拉取请求
+            'pull_requests': self.fetch_pull_requests(repo, since, until),  # 获取拉取请求
+            'releases': self.fetch_releases(repo, since, until)  # 获取发布版本（新增）
         }
         return updates
 
@@ -60,6 +61,57 @@ class GitHubClient:
             return response.json()
         except Exception as e:
             LOG.error(f"从 {repo} 获取 Pull Requests 失败：{str(e)}")
+            LOG.error(f"响应详情：{response.text if 'response' in locals() else '无响应数据可用'}")
+            return []
+
+    def fetch_releases(self, repo, since=None, until=None):
+        """
+        获取指定仓库的 Releases，支持时间段筛选。
+        
+        :param repo: 仓库名称，格式为 owner/repo
+        :param since: 起始时间（ISO 8601 格式），可选
+        :param until: 结束时间（ISO 8601 格式），可选
+        :return: Releases 列表
+        """
+        LOG.debug(f"准备获取 {repo} 的 Releases")
+        url = f'https://api.github.com/repos/{repo}/releases'  # 构建获取发布的API URL
+        
+        try:
+            response = requests.get(url, headers=self.headers, params={'per_page': 100}, timeout=10)
+            response.raise_for_status()
+            releases = response.json()
+            
+            # 如果指定了时间段，进行筛选
+            if since or until:
+                filtered_releases = []
+                for release in releases:
+                    published_at = release.get('published_at')
+                    if not published_at:
+                        continue
+                    
+                    # 转换为 datetime 进行比较
+                    from datetime import datetime
+                    try:
+                        pub_date = datetime.fromisoformat(published_at.replace('Z', '+00:00'))
+                        since_date = datetime.fromisoformat(since.replace('Z', '+00:00')) if since else None
+                        until_date = datetime.fromisoformat(until.replace('Z', '+00:00')) if until else None
+                        
+                        # 检查是否在时间范围内
+                        if since_date and pub_date < since_date:
+                            continue
+                        if until_date and pub_date > until_date:
+                            continue
+                        
+                        filtered_releases.append(release)
+                    except (ValueError, AttributeError) as e:
+                        LOG.warning(f"解析发布时间失败: {published_at}, 错误: {e}")
+                        continue
+                
+                return filtered_releases
+            
+            return releases
+        except Exception as e:
+            LOG.error(f"从 {repo} 获取 Releases 失败：{str(e)}")
             LOG.error(f"响应详情：{response.text if 'response' in locals() else '无响应数据可用'}")
             return []
 

@@ -23,27 +23,50 @@ class LLM:
     def generate_report(self, system_prompt, user_content):
         """
         生成报告，根据配置选择不同的模型来处理请求。
+        使用增强的 System role 设计提升报告质量和稳定性。
 
         :param system_prompt: 系统提示信息，包含上下文和规则。
         :param user_content: 用户提供的内容，通常是Markdown格式的文本。
         :return: 生成的报告内容。
         """
+        # 增强的 System role 提示词，确保输出质量和格式一致性
+        enhanced_system_prompt = f"""{system_prompt}
+
+请确保生成的报告：
+1. 格式规范：使用 Markdown 格式，结构清晰
+2. 内容准确：基于提供的数据准确分析
+3. 逻辑完整：包含必要的背景、分析和总结
+4. 语言专业：使用专业的技术术语和表达方式
+5. 可读性强：层次分明，便于阅读和理解
+"""
+        
         messages = [
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": enhanced_system_prompt},
             {"role": "user", "content": user_content},
         ]
 
-        # 根据选择的模型调用相应的生成报告方法
-        if self.model == "openai":
-            return self._generate_report_openai(messages)
-        elif self.model == "ollama":
-            return self._generate_report_ollama(messages)
-        else:
-            raise ValueError(f"不支持的模型类型: {self.model}")
+        # 根据选择的模型调用相应的生成报告方法，支持重试机制
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                if self.model == "openai":
+                    return self._generate_report_openai(messages)
+                elif self.model == "ollama":
+                    return self._generate_report_ollama(messages)
+                else:
+                    raise ValueError(f"不支持的模型类型: {self.model}")
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    LOG.warning(f"生成报告失败，正在重试 ({attempt + 1}/{max_retries}): {e}")
+                    continue
+                else:
+                    LOG.error(f"生成报告失败，已达到最大重试次数: {e}")
+                    raise
 
     def _generate_report_openai(self, messages):
         """
         使用 OpenAI GPT 模型生成报告。
+        增强错误处理和输出验证。
 
         :param messages: 包含系统提示和用户内容的消息列表。
         :return: 生成的报告内容。
@@ -52,10 +75,22 @@ class LLM:
         try:
             response = self.client.chat.completions.create(
                 model=self.config.openai_model_name,  # 使用配置中的OpenAI模型名称
-                messages=messages
+                messages=messages,
+                temperature=0.7,  # 控制输出随机性，提升稳定性
+                max_tokens=4000   # 限制最大token数，确保输出完整
             )
             LOG.debug("GPT 响应: {}", response)
-            return response.choices[0].message.content  # 返回生成的报告内容
+            
+            # 验证输出内容
+            content = response.choices[0].message.content
+            if not content or len(content.strip()) == 0:
+                raise ValueError("生成的报告内容为空")
+            
+            # 验证基本格式（至少包含一些内容）
+            if len(content.strip()) < 10:
+                LOG.warning("生成的报告内容过短，可能存在问题")
+            
+            return content  # 返回生成的报告内容
         except Exception as e:
             LOG.error(f"生成报告时发生错误：{e}")
             raise

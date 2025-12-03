@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Any
 import json
 import re
 from pathlib import Path
+import time
 from logger import LOG
 
 
@@ -105,7 +106,7 @@ class ReflectionAgent:
                 "task_type": task_type,
                 "original_content": content,
                 "reflection": reflection_result,
-                "timestamp": str(Path(__file__).stat().st_mtime)  # 简化时间戳
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
             })
             
             return reflection_result

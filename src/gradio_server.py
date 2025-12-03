@@ -11,7 +11,11 @@ from logger import LOG  # 导入日志记录器
 # 创建各个组件的实例
 config = Config()
 github_client = GitHubClient(config.github_token)
-llm = LLM()
+# v0.6: 传递配置以支持 Ollama
+config_dict = {
+    'llm': config.llm_config if hasattr(config, 'llm_config') else {}
+}
+llm = LLM(config_dict)  # 支持 OpenAI 和 Ollama
 report_generator = ReportGenerator(llm)
 subscription_manager = SubscriptionManager(config.subscriptions_file)
 hacker_news_client = HackerNewsClient()

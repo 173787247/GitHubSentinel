@@ -11,6 +11,8 @@ GitHub Sentinel 是一个开源的工具 AI 代理，专为开发人员和项目
 - 更新检索
 - 通知系统
 - 报告生成
+- Hacker News 趋势报告（v0.5）
+- Ollama 私有化模型支持（v0.6）
 
 ## 快速开始
 
@@ -39,9 +41,27 @@ pip install -r requirements.txt
     "slack_webhook_url": "your_slack_webhook_url",
     "subscriptions_file": "subscriptions.json",
     "github_progress_frequency_days": 1,
-    "github_progress_execution_time":"08:00"
+    "github_progress_execution_time":"08:00",
+    "hacker_news_execution_time": "09:00",
+    "llm": {
+        "type": "openai",
+        "openai_model": "gpt-4o-mini"
+    }
 }
 ```
+
+**v0.6 新增 - Ollama 支持：** 可以使用 Ollama 私有化部署的大模型服务，配置示例：
+```json
+{
+    "llm": {
+        "type": "ollama",
+        "ollama_base_url": "http://localhost:11434/v1",
+        "ollama_model": "llama3.2"
+    }
+}
+```
+详细配置说明请参考 [OLLAMA_CONFIG.md](OLLAMA_CONFIG.md)
+
 **出于安全考虑:** GitHub Token 和 Email Password 的设置均支持使用环境变量进行配置，以避免明文配置重要信息，如下所示：
 
 ```shell

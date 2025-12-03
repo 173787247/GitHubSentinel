@@ -22,4 +22,7 @@ class Config:
             # 默认每天执行
             self.freq_days = config.get('github_progress_frequency_days', 1)
             # 默认早上8点更新 (操作系统默认时区是 UTC +0，08点刚好对应北京时间凌晨12点)
-            self.exec_time = config.get('github_progress_execution_time', "08:00") 
+            self.exec_time = config.get('github_progress_execution_time', "08:00")
+            
+            # LLM 配置（v0.6 新增：支持 Ollama）
+            self.llm_config = config.get('llm', {}) 

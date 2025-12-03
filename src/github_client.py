@@ -3,12 +3,21 @@
 import requests  # 导入requests库用于HTTP请求
 from datetime import datetime, date, timedelta  # 导入日期处理模块
 import os  # 导入os模块用于文件和目录操作
+import time  # 导入time模块用于处理速率限制
 from logger import LOG  # 导入日志模块
 
 class GitHubClient:
     def __init__(self, token):
         self.token = token  # GitHub API令牌
-        self.headers = {'Authorization': f'token {self.token}'}  # 设置HTTP头部认证信息
+        # 支持两种认证格式：Bearer（推荐）和 token（兼容旧格式）
+        if token.startswith('ghp_') or token.startswith('github_pat_'):
+            # 新的个人访问令牌格式
+            self.headers = {'Authorization': f'Bearer {self.token}'}
+        else:
+            # 兼容旧格式
+            self.headers = {'Authorization': f'token {self.token}'}
+        # 添加Accept头，使用最新API版本
+        self.headers['Accept'] = 'application/vnd.github.v3+json'
 
     def fetch_updates(self, repo, since=None, until=None):
         # 获取指定仓库的更新，可以指定开始和结束日期
@@ -19,23 +28,76 @@ class GitHubClient:
         }
         return updates
 
+    def _handle_rate_limit(self, response):
+        """处理GitHub API速率限制"""
+        if response.status_code == 403:
+            rate_limit_remaining = response.headers.get('X-RateLimit-Remaining', '0')
+            rate_limit_reset = response.headers.get('X-RateLimit-Reset', '0')
+            if rate_limit_remaining == '0':
+                reset_time = datetime.fromtimestamp(int(rate_limit_reset))
+                wait_seconds = int(rate_limit_reset) - int(time.time())
+                LOG.warning(f"GitHub API速率限制，将在 {wait_seconds} 秒后重置（{reset_time}）")
+                if wait_seconds > 0 and wait_seconds < 3600:  # 最多等待1小时
+                    time.sleep(wait_seconds + 1)
+                    return True
+        return False
+
+    def _format_date(self, date_str):
+        """将日期字符串格式化为ISO 8601格式（带时间）"""
+        if not date_str:
+            return None
+        # 如果已经是完整的ISO格式，直接返回
+        if 'T' in date_str:
+            return date_str
+        # 否则添加时间部分
+        return f"{date_str}T00:00:00Z"
+
     def fetch_commits(self, repo, since=None, until=None):
         LOG.debug(f"准备获取 {repo} 的 Commits")
         url = f'https://api.github.com/repos/{repo}/commits'  # 构建获取提交的API URL
-        params = {}
+        params = {'per_page': 100}  # 增加每页返回数量
         if since:
-            params['since'] = since  # 如果指定了开始日期，添加到参数中
+            params['since'] = self._format_date(since)  # 格式化日期
         if until:
-            params['until'] = until  # 如果指定了结束日期，添加到参数中
+            params['until'] = self._format_date(until)  # 格式化日期
 
+        all_commits = []
+        page = 1
+        
         try:
-            response = requests.get(url, headers=self.headers, params=params, timeout=10)
-            response.raise_for_status()  # 检查请求是否成功
-            return response.json()  # 返回JSON格式的数据
-        except Exception as e:
+            while True:
+                params['page'] = page
+                response = requests.get(url, headers=self.headers, params=params, timeout=30)
+                
+                # 处理速率限制
+                if self._handle_rate_limit(response):
+                    continue
+                
+                response.raise_for_status()  # 检查请求是否成功
+                commits = response.json()
+                
+                if not commits:  # 没有更多数据
+                    break
+                    
+                all_commits.extend(commits)
+                
+                # 检查是否还有更多页面
+                if 'rel="next"' not in response.headers.get('Link', ''):
+                    break
+                    
+                page += 1
+                
+            LOG.info(f"成功获取 {repo} 的 {len(all_commits)} 条 Commits")
+            return all_commits
+        except requests.exceptions.RequestException as e:
             LOG.error(f"从 {repo} 获取 Commits 失败：{str(e)}")
-            LOG.error(f"响应详情：{response.text if 'response' in locals() else '无响应数据可用'}")
+            if hasattr(e, 'response') and e.response is not None:
+                LOG.error(f"响应状态码：{e.response.status_code}")
+                LOG.error(f"响应详情：{e.response.text[:500]}")
             return []  # Handle failure case
+        except Exception as e:
+            LOG.error(f"从 {repo} 获取 Commits 时发生未知错误：{str(e)}")
+            return []
 
     def fetch_issues(self, repo, since=None, until=None):
         LOG.debug(f"准备获取 {repo} 的 Issues。")

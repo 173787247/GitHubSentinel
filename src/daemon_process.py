@@ -12,6 +12,9 @@ from llm import LLM  # 导入语言模型类，可能用于生成报告内容
 from subscription_manager import SubscriptionManager  # 导入订阅管理器类，管理GitHub仓库订阅
 from hacker_news_client import HackerNewsClient  # 导入Hacker News客户端类
 from logger import LOG  # 导入日志记录器
+# v1.0: 导入渠道管理系统
+from channel_manager import ChannelManager
+from channels import GitHubChannel, HackerNewsChannel
 
 
 def graceful_shutdown(signum, frame):
@@ -50,6 +53,42 @@ def hacker_news_job(hacker_news_client, report_generator, notifier):
         LOG.error(f"[Hacker News定时任务]执行失败：{str(e)}")
 
 
+def channel_job(channel_manager, channel_name, report_generator, notifier, **kwargs):
+    """
+    v1.0: 通用渠道任务函数
+    支持任何已注册的自定义渠道
+    
+    Args:
+        channel_manager: 渠道管理器实例
+        channel_name: 渠道名称
+        report_generator: 报告生成器实例
+        notifier: 通知器实例
+        **kwargs: 传递给渠道的额外参数
+    """
+    LOG.info(f"[开始执行渠道任务] {channel_name}")
+    try:
+        # 从渠道获取数据
+        data = channel_manager.fetch_data(channel_name, **kwargs)
+        if not data:
+            LOG.warning(f"[渠道任务 {channel_name}]未获取到数据")
+            return
+        
+        # 导出数据到 Markdown 文件
+        markdown_file_path = channel_manager.export_data(channel_name, data=data, **kwargs)
+        if markdown_file_path:
+            # 生成报告
+            report, report_file_path = report_generator.generate_channel_report(
+                markdown_file_path, channel_name
+            )
+            # 发送通知
+            notifier.notify(channel_name, report)
+            LOG.info(f"[渠道任务 {channel_name}]执行完毕")
+        else:
+            LOG.warning(f"[渠道任务 {channel_name}]导出数据失败")
+    except Exception as e:
+        LOG.error(f"[渠道任务 {channel_name}]执行失败：{str(e)}")
+
+
 def main():
     # 设置信号处理器
     signal.signal(signal.SIGTERM, graceful_shutdown)
@@ -65,10 +104,48 @@ def main():
     report_generator = ReportGenerator(llm)  # 创建报告生成器实例
     subscription_manager = SubscriptionManager(config.subscriptions_file)  # 创建订阅管理器实例
     hacker_news_client = HackerNewsClient()  # 创建Hacker News客户端实例
+    
+    # v1.0: 初始化渠道管理器并注册内置渠道
+    channel_manager = ChannelManager()
+    github_channel = GitHubChannel(name="github", config={'token': config.github_token})
+    channel_manager.register_channel(github_channel)
+    hacker_news_channel = HackerNewsChannel(name="hacker_news")
+    channel_manager.register_channel(hacker_news_channel)
+    
+    # v1.0: 从配置文件加载自定义渠道
+    with open('config.json', 'r') as f:
+        config_data = json.load(f)
+        custom_channels = config_data.get('custom_channels', [])
+        for channel_config in custom_channels:
+            try:
+                channel_type = channel_config.get('type')
+                channel_name = channel_config.get('name')
+                channel_params = channel_config.get('config', {})
+                
+                if channel_type == 'rss':
+                    from channels.custom_rss_channel import CustomRSSChannel
+                    custom_channel = CustomRSSChannel(name=channel_name, config=channel_params)
+                    channel_manager.register_channel(custom_channel)
+                    LOG.info(f"注册自定义渠道: {channel_name} (类型: {channel_type})")
+            except Exception as e:
+                LOG.error(f"注册自定义渠道失败: {str(e)}")
 
     # 启动时立即执行（如不需要可注释）
     github_job(subscription_manager, github_client, report_generator, notifier, config.freq_days)
     hacker_news_job(hacker_news_client, report_generator, notifier)
+    
+    # v1.0: 执行自定义渠道任务
+    for channel_name in channel_manager.list_channels():
+        if channel_name not in ['github', 'hacker_news']:  # 跳过已单独处理的内置渠道
+            try:
+                channel_config = next((c for c in custom_channels if c.get('name') == channel_name), {})
+                exec_time = channel_config.get('execution_time', "10:00")
+                schedule.every(1).days.at(exec_time).do(
+                    channel_job, channel_manager, channel_name, report_generator, notifier
+                )
+                LOG.info(f"安排自定义渠道任务: {channel_name} 执行时间: {exec_time}")
+            except Exception as e:
+                LOG.error(f"安排自定义渠道任务失败 {channel_name}: {str(e)}")
 
     # 安排每天的定时任务
     schedule.every(config.freq_days).days.at(
@@ -76,9 +153,7 @@ def main():
     ).do(github_job, subscription_manager, github_client, report_generator, notifier, config.freq_days)
     
     # 安排Hacker News定时任务（每天执行一次，默认在GitHub任务后1小时）
-    with open('config.json', 'r') as f:
-        config_data = json.load(f)
-        hacker_news_time = config_data.get('hacker_news_execution_time', "09:00")
+    hacker_news_time = config_data.get('hacker_news_execution_time', "09:00")
     schedule.every(1).days.at(hacker_news_time).do(
         hacker_news_job, hacker_news_client, report_generator, notifier
     )

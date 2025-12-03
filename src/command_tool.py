@@ -8,6 +8,10 @@ from subscription_manager import SubscriptionManager  # 从subscription_manager�
 from command_handler import CommandHandler  # 从command_handler模块导入CommandHandler类，处理命令行命令
 from hacker_news_client import HackerNewsClient  # 从hacker_news_client模块导入HackerNewsClient类
 from logger import LOG  # 从logger模块导入LOG对象，用于日志记录
+# v1.0: 导入渠道管理系统
+from channel_manager import ChannelManager
+from channels import GitHubChannel, HackerNewsChannel
+import json
 
 def main():
     config = Config()  # 创建配置实例
@@ -20,7 +24,37 @@ def main():
     report_generator = ReportGenerator(llm)  # 创建报告生成器实例
     subscription_manager = SubscriptionManager(config.subscriptions_file)  # 创建订阅管理器实例
     hacker_news_client = HackerNewsClient()  # 创建Hacker News客户端实例
-    command_handler = CommandHandler(github_client, subscription_manager, report_generator, hacker_news_client)  # 创建命令处理器实例
+    
+    # v1.0: 初始化渠道管理器
+    channel_manager = ChannelManager()
+    github_channel = GitHubChannel(name="github", config={'token': config.github_token})
+    channel_manager.register_channel(github_channel)
+    hacker_news_channel = HackerNewsChannel(name="hacker_news")
+    channel_manager.register_channel(hacker_news_channel)
+    
+    # v1.0: 从配置文件加载自定义渠道
+    try:
+        with open('config.json', 'r') as f:
+            config_data = json.load(f)
+            custom_channels = config_data.get('custom_channels', [])
+            for channel_config in custom_channels:
+                try:
+                    channel_type = channel_config.get('type')
+                    channel_name = channel_config.get('name')
+                    channel_params = channel_config.get('config', {})
+                    
+                    if channel_type == 'rss':
+                        from channels.custom_rss_channel import CustomRSSChannel
+                        custom_channel = CustomRSSChannel(name=channel_name, config=channel_params)
+                        channel_manager.register_channel(custom_channel)
+                        LOG.info(f"注册自定义渠道: {channel_name}")
+                except Exception as e:
+                    LOG.error(f"注册自定义渠道失败: {str(e)}")
+    except Exception as e:
+        LOG.warning(f"加载自定义渠道配置失败: {str(e)}")
+    
+    command_handler = CommandHandler(github_client, subscription_manager, report_generator, 
+                                     hacker_news_client, channel_manager)  # 创建命令处理器实例
     
     parser = command_handler.parser  # 获取命令解析器
     command_handler.print_help()  # 打印帮助信息

@@ -5,12 +5,13 @@ import argparse
 import argparse  # 导入argparse库，用于处理命令行参数解析
 
 class CommandHandler:
-    def __init__(self, github_client, subscription_manager, report_generator, hacker_news_client=None):
+    def __init__(self, github_client, subscription_manager, report_generator, hacker_news_client=None, channel_manager=None):
         # 初始化CommandHandler，接收GitHub客户端、订阅管理器和报告生成器
         self.github_client = github_client
         self.subscription_manager = subscription_manager
         self.report_generator = report_generator
         self.hacker_news_client = hacker_news_client
+        self.channel_manager = channel_manager  # v1.0: 渠道管理器
         self.parser = self.create_parser()  # 创建命令行解析器
 
     def create_parser(self):
@@ -62,6 +63,24 @@ class CommandHandler:
         # 生成Hacker News趋势报告
         parser_hn_report = hn_subparsers.add_parser('report', help='Generate Hacker News trend report')
         parser_hn_report.set_defaults(func=self.generate_hacker_news_report)
+        
+        # v1.0: 自定义渠道命令
+        parser_channel = subparsers.add_parser('channel', help='Custom channel operations')
+        channel_subparsers = parser_channel.add_subparsers(title='Channel Commands', dest='channel_command')
+        
+        # 列出所有渠道
+        parser_channel_list = channel_subparsers.add_parser('list', help='List all available channels')
+        parser_channel_list.set_defaults(func=self.list_channels)
+        
+        # 从渠道获取数据
+        parser_channel_fetch = channel_subparsers.add_parser('fetch', help='Fetch data from a channel')
+        parser_channel_fetch.add_argument('channel_name', type=str, help='Channel name')
+        parser_channel_fetch.set_defaults(func=self.fetch_channel_data)
+        
+        # 生成渠道报告
+        parser_channel_report = channel_subparsers.add_parser('report', help='Generate report from a channel')
+        parser_channel_report.add_argument('channel_name', type=str, help='Channel name')
+        parser_channel_report.set_defaults(func=self.generate_channel_report)
 
         # 帮助命令
         parser_help = subparsers.add_parser('help', help='Show help message')
@@ -124,5 +143,56 @@ class CommandHandler:
         except Exception as e:
             print(f"生成Hacker News报告失败: {str(e)}")
 
+    def list_channels(self, args):
+        """v1.0: 列出所有可用渠道"""
+        if not self.channel_manager:
+            print("错误: 渠道管理器未初始化")
+            return
+        channels = self.channel_manager.list_channels()
+        print("可用渠道:")
+        for channel_name in channels:
+            info = self.channel_manager.get_channel_info(channel_name)
+            if info:
+                print(f"  - {channel_name} ({info.get('type', 'Unknown')})")
+    
+    def fetch_channel_data(self, args):
+        """v1.0: 从渠道获取数据"""
+        if not self.channel_manager:
+            print("错误: 渠道管理器未初始化")
+            return
+        try:
+            data = self.channel_manager.fetch_data(args.channel_name)
+            print(f"从渠道 {args.channel_name} 获取了 {len(data)} 条数据")
+            for item in data[:5]:  # 只显示前5条
+                print(f"  - {item.get('title', item.get('message', 'N/A'))[:60]}")
+        except Exception as e:
+            print(f"获取数据失败: {str(e)}")
+    
+    def generate_channel_report(self, args):
+        """v1.0: 生成渠道报告"""
+        if not self.channel_manager:
+            print("错误: 渠道管理器未初始化")
+            return
+        try:
+            # 获取数据
+            data = self.channel_manager.fetch_data(args.channel_name)
+            if not data:
+                print(f"未获取到 {args.channel_name} 渠道的数据")
+                return
+            
+            # 导出数据
+            markdown_file_path = self.channel_manager.export_data(args.channel_name, data=data)
+            if not markdown_file_path:
+                print(f"导出 {args.channel_name} 数据失败")
+                return
+            
+            # 生成报告
+            report, report_file_path = self.report_generator.generate_channel_report(
+                markdown_file_path, args.channel_name
+            )
+            print(f"{args.channel_name} 渠道报告已生成: {report_file_path}")
+        except Exception as e:
+            print(f"生成报告失败: {str(e)}")
+    
     def print_help(self, args=None):
         self.parser.print_help()  # 输出帮助信息
